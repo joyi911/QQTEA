@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TEA Encryption/Decryption</title>
+</head>
+<body>
+    <h1>TEA Encryption/Decryption Example</h1>
+    <div>
+        <label for="plaintext">Plaintext Hex:</label>
+        <input type="text" id="plaintext" value="33b27688df3e5249a6a06fd2596bf35fe11f4abf84fb944cb1c332d02d51fd9f2719658f49c99c94e788680dc8ee7714b063304b96fb6cd0">
+    </div>
+    <div>
+        <label for="key">Key Hex:</label>
+        <input type="text" id="key" value="00000000000000000000000000000000">
+    </div>
+    <div>
+        <button onclick="encryptAndDecrypt()">加密 & 解密</button> || <button onclick="decrypttea()">解密 tea</button>
+    </div>
+    <div>
+        <p><strong>Encrypted:</strong> <span id="encrypted"></span></p>
+        <p><strong>Decrypted:</strong> <span id="decrypted"></span></p>
+    </div>
+
+    <script>
+        class QQTEA {
+            constructor() {
+                this.delta = 0x9E3779B9;
+                this.round = 16;
+                this.op = 0xFFFFFFFF;
+                this.flag = "\0\0\0\0\0\0\0";
+            }
+
+            xorBytes(a, b) {
+                let result = new Uint8Array(a.length);
+                for (let i = 0; i < a.length; i++) {
+                    result[i] = a[i] ^ b[i];
+                }
+                return result;
+            }
+
+            encipher(t, share_key) {
+                let sum = this.delta;
+                let keys = new Uint32Array(4);
+                for (let i = 0; i < 4; i++) {
+                    keys[i] = (share_key[i * 4] << 24) | (share_key[i * 4 + 1] << 16) | (share_key[i * 4 + 2] << 8) | share_key[i * 4 + 3];
+                }
+
+                if (t.length < 8) {
+                    throw new Error('Input length is too short for encipher');
+                }
+
+                let uint32_1 = (t[0] << 24) | (t[1] << 16) | (t[2] << 8) | t[3];
+                let uint32_2 = (t[4] << 24) | (t[5] << 16) | (t[6] << 8) | t[7];
+
+                for (let i = 0; i < this.round; i++) {
+                    uint32_1 += (((((uint32_2 << 4) & 0xFFFFFFF0) + keys[1]) ^ (uint32_2 + sum)) ^ (((((uint32_2 >> 5) & 0x07FFFFFF) + keys[2]))));
+                    uint32_2 += (((((uint32_1 << 4) & 0xFFFFFFF0) + keys[3]) ^ (uint32_1 + sum)) ^ (((((uint32_1 >> 5) & 0x07FFFFFF) + keys[0]))));
+                    sum += this.delta;
+                }
+
+                uint32_1 &= this.op;
+                uint32_2 &= this.op;
+
+                let output = new Uint8Array(8);
+                output[0] = (uint32_1 >> 24) & 0xFF;
+                output[1] = (uint32_1 >> 16) & 0xFF;
+                output[2] = (uint32_1 >> 8) & 0xFF;
+                output[3] = uint32_1 & 0xFF;
+                output[4] = (uint32_2 >> 24) & 0xFF;
+                output[5] = (uint32_2 >> 16) & 0xFF;
+                output[6] = (uint32_2 >> 8) & 0xFF;
+                output[7] = uint32_2 & 0xFF;
+
+                return output;
+            }
+
+            decipher(t, share_key) {
+                let sum = (this.delta << 4) & this.op;
+                let keys = new Uint32Array(4);
+                for (let i = 0; i < 4; i++) {
+                    keys[i] = (share_key[i * 4] << 24) | (share_key[i * 4 + 1] << 16) | (share_key[i * 4 + 2] << 8) | share_key[i * 4 + 3];
+                }
+
+                if (t.length < 8) {
+                    throw new Error('Input length is too short for decipher');
+                }
+
+                let uint32_1 = (t[0] << 24) | (t[1] << 16) | (t[2] << 8) | t[3];
+                let uint32_2 = (t[4] << 24) | (t[5] << 16) | (t[6] << 8) | t[7];
+
+                for (let i = 0; i < this.round; i++) {
+                    uint32_2 -= (((((uint32_1 << 4) & 0xFFFFFFF0) + keys[3]) ^ (uint32_1 + sum)) ^ (((((uint32_1 >> 5) & 0x07FFFFFF) + keys[0]))));
+                    uint32_1 -= (((((uint32_2 << 4) & 0xFFFFFFF0) + keys[1]) ^ (uint32_2 + sum)) ^ (((((uint32_2 >> 5) & 0x07FFFFFF) + keys[2]))));
+                    sum -= this.delta;
+                }
+
+                uint32_1 &= this.op;
+                uint32_2 &= this.op;
+
+                let output = new Uint8Array(8);
+                output[0] = (uint32_1 >> 24) & 0xFF;
+                output[1] = (uint32_1 >> 16) & 0xFF;
+                output[2] = (uint32_1 >> 8) & 0xFF;
+                output[3] = uint32_1 & 0xFF;
+                output[4] = (uint32_2 >> 24) & 0xFF;
+                output[5] = (uint32_2 >> 16) & 0xFF;
+                output[6] = (uint32_2 >> 8) & 0xFF;
+                output[7] = uint32_2 & 0xFF;
+
+                return output;
+            }
+
+            cleanHexInput(hex) {
+                return hex.replace(/\s+/g, '');
+            }
+
+            hexToBytes(hex) {
+                let bytes = new Uint8Array(hex.length / 2);
+                for (let i = 0; i < bytes.length; i++) {
+                    bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
+                }
+                return bytes;
+            }
+
+            bytesToHex(bytes) {
+                return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+            }
+
+            encrypt(cleartext_hex, share_key_hex) {
+                cleartext_hex = this.cleanHexInput(cleartext_hex);
+                share_key_hex = this.cleanHexInput(share_key_hex);
+
+                let cleartext = this.hexToBytes(cleartext_hex);
+                let share_key = this.hexToBytes(share_key_hex);
+
+                let cleartext_length = cleartext.length;
+                let padding_length = (8 - ((cleartext_length + 2) % 8)) % 8;
+                padding_length += 2 + (padding_length < 0 ? 8 : 0);
+
+                let padding_bytes = new Uint8Array(padding_length);
+                for (let i = 0; i < padding_length; i++) {
+                    padding_bytes[i] = Math.floor(Math.random() * 253) + 1;
+                }
+
+                let padded_cleartext = new Uint8Array(1 + padding_length + cleartext.length + 7);
+                padded_cleartext[0] = ((padding_length - 2) | 0xF8);
+                padded_cleartext.set(padding_bytes, 1);
+                padded_cleartext.set(cleartext, 1 + padding_length);
+                padded_cleartext.set(this.hexToBytes(this.flag), 1 + padding_length + cleartext.length);
+
+                let b1 = new Uint8Array(8);
+                let b2 = new Uint8Array(8);
+                let result = [];
+
+                for (let i = 0; i < padded_cleartext.length; i += 8) {
+                    let t = this.xorBytes(padded_cleartext.slice(i, i + 8), b1);
+                    b1 = this.xorBytes(this.encipher(t, share_key), b2);
+                    b2 = t;
+                    result.push(...b1);
+                }
+
+                return this.bytesToHex(new Uint8Array(result));
+            }
+
+            decrypt(ciphertext_hex, share_key_hex) {
+                ciphertext_hex = this.cleanHexInput(ciphertext_hex);
+                share_key_hex = this.cleanHexInput(share_key_hex);
+
+                let ciphertext = this.hexToBytes(ciphertext_hex);
+                let share_key = this.hexToBytes(share_key_hex);
+
+                let ciphertext_len = ciphertext.length;
+                if (ciphertext_len < 8) {
+                    throw new Error('Ciphertext length is too short for decryption');
+                }
+
+                let pre_crypt = ciphertext.slice(0, 8);
+                let pre_plain = this.decipher(pre_crypt, share_key);
+
+                let result = [...pre_plain];
+                for (let i = 8; i < ciphertext_len; i += 8) {
+                    let a = this.xorBytes(this.decipher(this.xorBytes(ciphertext.slice(i, i + 8), pre_plain), share_key), pre_crypt);
+                    pre_plain = this.xorBytes(a, pre_crypt);
+                    pre_crypt = ciphertext.slice(i, i + 8);
+                    result.push(...a);
+                }
+
+                let padding_length = result[0] & 0x07;
+                result = result.slice(3 + padding_length);
+                result = result.slice(0, -7);
+
+                return this.bytesToHex(new Uint8Array(result));
+            }
+        }
+
+        function encryptAndDecrypt() {
+            const tea = new QQTEA();
+            const plaintext = document.getElementById('plaintext').value;
+            const key = document.getElementById('key').value;
+
+            const encrypted = tea.encrypt(plaintext, key);
+            const decrypted = tea.decrypt(encrypted, key);
+
+            document.getElementById('encrypted').innerText = encrypted;
+            document.getElementById('decrypted').innerText = decrypted;
+        }
+		
+		function decrypttea() {
+            const tea = new QQTEA();
+            const plaintext = document.getElementById('plaintext').value;
+            const key = document.getElementById('key').value;
+            const decrypted = tea.decrypt(encrypted, key);
+            document.getElementById('decrypted').innerText = decrypted;
+        }
+    </script>
+</body>
+</html>
