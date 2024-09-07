@@ -1,5 +1,4 @@
 <?php
-
 class QQTEA
 {
     // TEA 算法的 Delta 常量
@@ -23,8 +22,8 @@ class QQTEA
         $sum = $this->delta;
         $keys = unpack('N4', $share_key); // 将密钥从二进制数据转换为四个 32 位无符号整数
 
-        if (strlen($t) != 8) {
-            throw new Exception('Input length is not 8 bytes for encipher');
+        if (strlen($t) < 8) {
+            throw new Exception('Input length is too short for encipher');
         }
 
         // 将输入数据分割成两个 32 位的整数
@@ -52,8 +51,8 @@ class QQTEA
         $sum = ($this->delta << 4) & $this->op;
         $keys = unpack('N4', $share_key); // 将密钥从二进制数据转换为四个 32 位无符号整数
 
-        if (strlen($t) != 8) {
-            throw new Exception('Input length is not 8 bytes for decipher');
+        if (strlen($t) < 8) {
+            throw new Exception('Input length is too short for decipher');
         }
 
         // 将输入数据分割成两个 32 位的整数
@@ -98,21 +97,20 @@ class QQTEA
         $padding_length += 2 + ($padding_length < 0 ? 8 : 0);
 
         // 生成填充数据
-        $padding_data = chr(($padding_length - 2) | 0xF8);
-        for ($i = 0; $i < ($padding_length - 1); $i++) {
-            $padding_data .= chr(rand(1, 253)); // 随机填充字节
+        $padding_hex = '';
+        for ($i = 0; $i < $padding_length; $i++) {
+            $padding_hex .= chr(rand(1, 253)); // 随机填充字节
         }
 
         // 拼接填充数据和明文
-        $padded_cleartext = $padding_data . $cleartext;
+        $padded_cleartext = chr(($padding_length - 2) | 0xF8) . $padding_hex . $cleartext . $this->flag;
 
         // TEA 加密
         $b1 = $b2 = str_repeat("\0", 8); // 初始化两个 8 字节的块
         $result = '';
         for ($i = 0; $i < strlen($padded_cleartext); $i += 8) {
-            $t = substr($padded_cleartext, $i, 8);
-            $t = str_pad($t, 8, "\0"); // 确保每个数据块的长度为 8 字节
-            $t = $this->xorBytes($t, $b1);
+            // 使用 XOR 操作与上一个块进行加密
+            $t = $this->xorBytes(substr($padded_cleartext, $i, 8), $b1);
             $b1 = $this->xorBytes($this->encipher($t, $share_key), $b2);
             $b2 = $t;
             $result .= $b1;
@@ -140,11 +138,13 @@ class QQTEA
             throw new Exception('Ciphertext length is too short for decryption');
         }
 
+        // 解密第一个 8 字节的块
         $pre_crypt = substr($ciphertext, 0, 8);
         $pre_plain = $this->decipher($pre_crypt, $share_key);
 
         $result = $pre_plain;
         for ($i = 8; $i < $ciphertext_len; $i += 8) {
+            // 解密过程中的块 XOR 操作
             $a = $this->xorBytes($this->decipher($this->xorBytes(substr($ciphertext, $i, 8), $pre_plain), $share_key), $pre_crypt);
             $pre_plain = $this->xorBytes($a, $pre_crypt);
             $pre_crypt = substr($ciphertext, $i, 8);
@@ -153,18 +153,18 @@ class QQTEA
 
         // 去除填充
         $padding_length = ord($result[0]) & 0x07; // 计算填充长度
-        $result = substr($result, 2 + $padding_length); // 去掉填充字段和填充数据
+        $result = substr($result, 3 + $padding_length); // 去掉填充字段和填充数据
+        $result = substr($result, 0, -7);// 去掉填充字段和填充数据
 
         // 返回解密结果的十六进制表示
         return bin2hex($result);
     }
 }
 
-// 使用示例  参数都是使用的16进制文本，秘钥也是16进制文本
+// 使用示例
 $tea = new QQTEA;
-$jiami = $tea->encrypt("5e65e7c7bf7d2c043a", "00000000000000000000000000000000");
-echo "加密内容：" . $jiami . "</br>";
-$jiemi = $tea->decrypt($jiami, "00000000000000000000000000000000");
-echo "解密内容：" . $jiemi . "</br>";
-
+$jiami = $tea->encrypt("33b27688df3e5249a6a06fd2596bf35fe11f4abf84fb944cb1c332d02d51fd9f2719658f49c99c94e788680dc8ee7714b063304b96fb6cd0","00000000000000000000000000000000");
+echo "加密内容：".$jiami."</br>";
+$jiemi = $tea->decrypt($jiami,"00000000000000000000000000000000");
+echo "解密内容：".$jiemi."</br>";
 ?>
